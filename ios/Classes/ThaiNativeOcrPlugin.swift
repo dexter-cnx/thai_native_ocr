@@ -27,7 +27,7 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
     let autoDetectThai = arguments["autoDetectThai"] as? Bool ?? true
     let forceLanguage = arguments["forceLanguage"] as? String
 
-    if let forceLanguage, !["th", "en", "mixed"].contains(forceLanguage) {
+    if let forceLanguage = forceLanguage, !["th", "en", "mixed"].contains(forceLanguage) {
       result(FlutterError(
         code: "INVALID_FORCE_LANGUAGE",
         message: "forceLanguage must be th, en, or mixed.",
@@ -73,7 +73,7 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
     var stage1ContainsThai = false
     let stage2Languages: [String]
 
-    if let forceLanguage {
+    if let forceLanguage = forceLanguage {
       switch forceLanguage {
       case "th":
         stage2Languages = ["th-TH"]
@@ -144,7 +144,7 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
     var lines: [(text: String, confidence: Float)] = []
 
     let request = VNRecognizeTextRequest { request, error in
-      if let error {
+      if let error = error {
         requestError = error
         return
       }
@@ -160,12 +160,10 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
 
     request.recognitionLevel = level
     request.usesLanguageCorrection = usesLanguageCorrection
-    if languages.isEmpty {
-      request.recognitionLanguages = []
-      request.automaticallyDetectsLanguage = automaticallyDetectsLanguage
-    } else {
-      request.recognitionLanguages = languages
-      request.automaticallyDetectsLanguage = false
+    request.recognitionLanguages = languages
+
+    if #available(iOS 16.0, *) {
+      request.automaticallyDetectsLanguage = languages.isEmpty && automaticallyDetectsLanguage
     }
 
     let handler = VNImageRequestHandler(
@@ -175,7 +173,7 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
     )
     try handler.perform([request])
 
-    if let requestError {
+    if let requestError = requestError {
       throw requestError
     }
 
