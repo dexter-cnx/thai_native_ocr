@@ -1,84 +1,139 @@
 # thai_native_ocr
 
-Native OCR for Flutter with a hybrid platform implementation:
+Hybrid native Thai OCR for Flutter.
 
-- **iOS:** Apple Vision only. No Tesseract dependency and no `tessdata` bundle.
-- **Android:** Tesseract via `tess-two`, with Thai + English `tessdata_best` models.
-- **Two-stage Thai auto-detection:** run a lightweight detector first, then select one of two accurate OCR modes: Thai + English or English only.
+- **iOS:** Apple Vision only — no Tesseract and no `tessdata` bundle.
+- **Android:** Tesseract 5 via Tesseract4Android, with bundled Thai + English `tessdata_fast` models.
+- **Two-stage detection:** fast Thai detection first, then one of two accurate modes: **Thai + English** or **English only**.
+- Supports image paths, `File`, and in-memory `Uint8List` bytes.
+- Optional OCR-oriented preprocessing for difficult document images.
 
 > ภาษาไทยอยู่ด้านล่าง — [อ่าน README ภาษาไทย](#ภาษาไทย)
 
-## Why this fixes the iOS Tesseract file-not-found bug
+## Why iOS uses Apple Vision
 
-A common Flutter/Tesseract failure on iOS is caused by resource lookup differences. Flutter assets are packaged under `App.framework/flutter_assets`, while native Tesseract integrations commonly expect `tessdata` under `Bundle.main` (or a manually configured native bundle path). That mismatch can surface as a classic `Tesseract file not found` / traineddata initialization error.
+Flutter assets are normally packaged under `App.framework/flutter_assets`, while many native Tesseract integrations expect traineddata under a native bundle path such as `Bundle.main`. That mismatch can cause `traineddata not found` or Tesseract initialization errors on iOS.
 
-`thai_native_ocr` removes that failure mode entirely on iOS. The iOS implementation uses Apple's built-in Vision framework (`VNRecognizeTextRequest`) and has **no Tesseract import, pod dependency, tessdata resource, or Tesseract file path handling**.
+`thai_native_ocr` removes that failure mode entirely on iOS by using `VNRecognizeTextRequest`. The iOS target intentionally contains no Tesseract dependency, no tessdata resource, and no Tesseract-specific file-path handling.
 
-Android intentionally uses Tesseract and keeps its models in the Android plugin asset bundle at `android/src/main/assets/tessdata/`.
-
-## Two-stage OCR
+## OCR strategy
 
 ### Stage 1 — fast Thai detector
 
-When `autoDetectThai` is `true` and `forceLanguage` is not set:
+When `autoDetectThai` is enabled and `forceLanguage` is not set:
 
-- **iOS:** `VNRecognizeTextRequest`, `.fast`, `automaticallyDetectsLanguage = true`, no explicit recognition language.
-- **Android:** quick English Tesseract OCR with `PSM_AUTO`.
-- The resulting text is checked for at least one character in the Thai Unicode range `U+0E00..U+0E7F`.
+- **iOS:** Vision `.fast` recognition with automatic language detection when supported by the OS.
+- **Android:** the image is downscaled to at most 960 px on its longest side, then a lightweight `tha+eng` Tesseract pass runs with `PSM_SPARSE_TEXT`.
+- The detector checks the OCR output for Thai Unicode characters (`U+0E00..U+0E7F`).
 
-This stage exists to cheaply determine which accurate OCR mode should be used.
+Android deliberately uses a bilingual detector instead of an English-only detector so Thai-only documents do not fall through to English mode simply because the English model emitted no Thai characters.
 
 ### Stage 2 — accurate OCR
 
-There are only two execution modes.
+There are only two execution modes:
 
-If Thai was detected:
+| Detection | iOS | Android |
+| --- | --- | --- |
+| Thai detected | `th-TH` + `en-US`, `.accurate` | `tha+eng`, `PSM_AUTO` |
+| No Thai detected | `en-US`, `.accurate` | `eng`, `PSM_AUTO` |
 
-- iOS: `th-TH` + `en-US`, `.accurate`, language correction enabled.
-- Android: `tha+eng`, `PSM_AUTO`, using `tessdata_best`.
-
-Otherwise:
-
-- iOS: `en-US`, `.accurate`.
-- Android: `eng`, `PSM_AUTO`.
-
-There is intentionally **no Thai-only OCR mode**. Whenever Thai recognition is enabled, English recognition remains enabled as well.
-
-`containsThai` in the returned result reflects the final OCR text as well as the Stage 1 signal, so a Thai character discovered during the accurate pass is not lost.
+There is intentionally no Thai-only mode. `forceLanguage: 'th'` is retained only as a backward-compatible alias for the bilingual Thai + English mode.
 
 ## Usage
 
+### Image path
+
 ```dart
-import 'package:thai_native_ocr/thai_native_ocr.dart';
-
 final result = await ThaiNativeOcr.recognize('/path/to/image.jpg');
+```
 
+### File
+
+```dart
+import 'dart:io';
+
+final result = await ThaiNativeOcr.recognizeFile(
+  File('/path/to/image.jpg'),
+);
+```
+
+### In-memory bytes
+
+```dart
+import 'dart:typed_data';
+
+final Uint8List bytes = ...;
+final result = await ThaiNativeOcr.recognizeBytes(bytes);
+```
+
+On iOS, byte input is decoded directly in memory; the plugin does not write a temporary image file before passing the image to Vision.
+
+### Preprocessing
+
+```dart
+final result = await ThaiNativeOcr.recognize(
+  imagePath,
+  preprocess: true,
+);
+```
+
+Preprocessing is opt-in because it is not always beneficial for clean images.
+
+- **Android:** grayscale + local adaptive thresholding before the accurate pass.
+- **iOS:** grayscale/contrast/brightness normalization using Core Image before the accurate Vision pass.
+
+This can help low-contrast or unevenly lit document photos where Thai combining marks are easily lost.
+
+### Force OCR strategy
+
+```dart
+await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'en');
+await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'mixed');
+await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'th'); // alias of mixed
+```
+
+`forceLanguage` takes precedence over `autoDetectThai`.
+
+## Result
+
+```dart
 print(result.text);
 print(result.containsThai);
 print(result.detectedLanguage); // th, en, mixed
 print(result.confidence);       // 0.0 - 1.0
 ```
 
-### Bypass auto-detection
+## Android model choice
 
-Run the Thai + English accurate pass directly:
+The package bundles `tha.traineddata` and `eng.traineddata` from `tessdata_fast` as the default balance between package size and runtime speed. The Android binding uses Tesseract 5, which is compatible with current v4+ traineddata files.
 
-```dart
-final result = await ThaiNativeOcr.recognize(
-  imagePath,
-  autoDetectThai: false,
-);
+The traineddata assets are Android-native assets only:
+
+```text
+android/src/main/assets/tessdata/
 ```
 
-Or force the language strategy:
+They are not bundled into the iOS plugin.
 
-```dart
-await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'en');    // English only
-await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'mixed'); // Thai + English
-await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'th');    // backward-compatible alias for Thai + English
+## Example
+
+The example app includes:
+
+- camera capture
+- gallery selection
+- preprocessing toggle
+- `containsThai` result badge
+- detected language
+- confidence
+- recognized text
+
+Run it with:
+
+```bash
+cd example
+flutter pub get
+flutter run
 ```
-
-`forceLanguage` accepts `th`, `en`, or `mixed`. `th` is retained for backward compatibility but behaves exactly like `mixed`; it does not enable a Thai-only OCR pass. `forceLanguage` takes precedence over `autoDetectThai`.
 
 ## Platform requirements
 
@@ -87,16 +142,9 @@ await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'th');    // backward-co
 - iOS 13.0+
 - Android minSdk 21+
 
-## iOS design rule
+## License
 
-The iOS target must remain Vision-only:
-
-- no Tesseract pod
-- no Tesseract import
-- no `tessdata` resource in the podspec
-- no Tesseract file path lookup
-
-This rule is intentional and is part of the package architecture.
+MIT. Bundled/linked third-party components retain their respective licenses; see `THIRD_PARTY_NOTICES.md`.
 
 For implementation details, see [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md).
 
@@ -104,148 +152,98 @@ For implementation details, see [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md).
 
 # ภาษาไทย
 
-`thai_native_ocr` คือ Flutter plugin สำหรับ OCR ที่ใช้ native engine ให้เหมาะกับแต่ละ platform โดย API ฝั่ง Dart ยังคงเหมือนกันทั้งหมด
+`thai_native_ocr` คือ Flutter plugin สำหรับ OCR ภาษาไทย/อังกฤษ โดยเลือก native engine ที่เหมาะกับแต่ละ platform
 
 - **iOS:** ใช้ Apple Vision เท่านั้น ไม่มี Tesseract และไม่มี `tessdata`
-- **Android:** ใช้ Tesseract ผ่าน `tess-two` พร้อมโมเดลภาษาไทยและอังกฤษจาก `tessdata_best`
-- **ตรวจภาษาไทยแบบ 2 Stage:** ตรวจแบบเร็วรอบแรก แล้วเลือก OCR แบบแม่นยำเพียง 2 แบบ คือ **ไทย+อังกฤษ** หรือ **อังกฤษล้วน**
+- **Android:** ใช้ Tesseract 5 ผ่าน Tesseract4Android พร้อม `tha` + `eng` จาก `tessdata_fast`
+- **ตรวจภาษาไทย 2 Stage:** ตรวจแบบเร็วก่อน แล้วเลือก OCR แบบแม่นยำเพียง 2 แบบ คือ **ไทย+อังกฤษ** หรือ **อังกฤษล้วน**
+- รองรับ path, `File` และ `Uint8List`
+- เปิด preprocessing ได้สำหรับภาพเอกสารที่มืดหรือ contrast ไม่สม่ำเสมอ
 
-## ทำไม package นี้แก้ปัญหา Tesseract file not found บน iOS ได้
+## ทำไม iOS ใช้ Apple Vision
 
-ปัญหาที่พบบ่อยเวลาใช้ Flutter ร่วมกับ Tesseract บน iOS คือ path ของ resource ไม่ตรงกัน
+Flutter มัก pack asset ไว้ใต้ `App.framework/flutter_assets` แต่ Tesseract integration หลายแบบพยายามหา traineddata ผ่าน native bundle path เช่น `Bundle.main` ทำให้เกิดปัญหา `traineddata not found` ได้ง่าย
 
-Flutter มัก pack asset ไว้ใต้เส้นทางลักษณะนี้:
+package นี้ตัดปัญหานั้นออกจาก iOS โดยตรง เพราะใช้ `VNRecognizeTextRequest` ของระบบและไม่พึ่ง Tesseract เลย
 
-```text
-App.framework/flutter_assets/
+## Stage 1 — ตรวจไทยแบบเร็ว
+
+เมื่อใช้ `autoDetectThai: true`:
+
+- **iOS:** Vision `.fast` + automatic language detection เมื่อ OS รองรับ
+- **Android:** ย่อภาพให้ด้านยาวไม่เกิน 960 px แล้วใช้ `tha+eng` กับ `PSM_SPARSE_TEXT`
+- ตรวจผลด้วยช่วง Unicode ภาษาไทย `U+0E00..U+0E7F`
+
+Android ไม่ใช้ `eng` ล้วนเป็น detector แล้ว เพราะเอกสารไทยล้วนมีโอกาสที่ English model จะไม่สร้างอักษรไทยออกมาเลยและทำให้เลือก mode ผิด
+
+## Stage 2 — OCR แบบแม่นยำ
+
+มีแค่ 2 mode:
+
+- พบไทย → iOS `th-TH + en-US`; Android `tha+eng`
+- ไม่พบไทย → iOS `en-US`; Android `eng`
+
+ไม่มีโหมดไทยล้วน โดย `forceLanguage: 'th'` ยังคงรับไว้เพื่อ compatibility แต่ทำงานเหมือน `mixed` คือไทย+อังกฤษ
+
+## วิธีใช้
+
+```dart
+final result = await ThaiNativeOcr.recognize('/path/to/image.jpg');
 ```
 
-แต่ Tesseract native integration หลายแบบพยายามหา `traineddata` ผ่าน `Bundle.main` หรือ native bundle path ที่กำหนดเอง
+จาก `File`:
 
-เมื่อ path ที่ Tesseract คาดไว้ไม่ตรงกับตำแหน่งที่ Flutter ใส่ไฟล์จริง จะเกิด error เช่น:
-
-```text
-Tesseract file not found
-traineddata not found
-failed to initialize Tesseract
+```dart
+final result = await ThaiNativeOcr.recognizeFile(File(imagePath));
 ```
 
-`thai_native_ocr` ตัดปัญหานี้ออกไปจาก iOS โดยตรง เพราะ **iOS ไม่ใช้ Tesseract เลย** แต่ใช้ Apple Vision (`VNRecognizeTextRequest`) ซึ่งมากับระบบปฏิบัติการอยู่แล้ว
+จาก bytes:
 
-ดังนั้นฝั่ง iOS จะไม่มี:
+```dart
+final result = await ThaiNativeOcr.recognizeBytes(bytes);
+```
 
-- Tesseract pod
-- Tesseract import
-- `tessdata` resource ใน podspec
-- Tesseract file path lookup
+บน iOS การส่ง bytes จะ decode ใน memory โดยตรง ไม่ต้องสร้างไฟล์ภาพชั่วคราวก่อนส่งเข้า Vision
 
-ส่วน Android ยังใช้ Tesseract ตามปกติ และเก็บ model ไว้เฉพาะที่:
+## Preprocessing
+
+```dart
+final result = await ThaiNativeOcr.recognize(
+  imagePath,
+  preprocess: true,
+);
+```
+
+- Android: grayscale + adaptive threshold แบบ local
+- iOS: grayscale + ปรับ contrast/brightness ด้วย Core Image
+
+เหมาะกับรูปเอกสารที่แสงไม่สม่ำเสมอ ตัวหนังสือจาง หรือมีโอกาสทำให้สระ/วรรณยุกต์ไทยหาย
+
+## Android model
+
+ค่า default ใช้ `tessdata_fast` เพื่อให้ package เล็กและประมวลผลเร็วกว่า `tessdata_best` โดยยังคงรองรับ traineddata รุ่นปัจจุบันผ่าน Tesseract 5
+
+model อยู่เฉพาะ Android ที่:
 
 ```text
 android/src/main/assets/tessdata/
 ```
 
-## ระบบตรวจภาษาไทยแบบ 2 Stage
+## Example
 
-### Stage 1 — ตรวจภาษาไทยแบบเร็ว
+example มีปุ่มถ่ายรูป, เลือกรูปจาก gallery, toggle preprocessing, badge `Thai detected` / `English only`, confidence และข้อความ OCR
 
-เมื่อใช้ค่า default:
-
-```dart
-autoDetectThai: true
+```bash
+cd example
+flutter pub get
+flutter run
 ```
 
-และไม่ได้กำหนด `forceLanguage` ระบบจะทำ detector pass ก่อน
-
-- **iOS:** `VNRecognizeTextRequest` แบบ `.fast` เปิด `automaticallyDetectsLanguage`
-- **Android:** quick OCR ด้วย English Tesseract และ `PSM_AUTO`
-- จากนั้นตรวจว่าข้อความมีอักขระในช่วง Unicode ภาษาไทย `U+0E00..U+0E7F` หรือไม่
-
-regex ที่ใช้มีแนวคิดเทียบเท่ากับ:
-
-```text
-[\u0E00-\u0E7F]
-```
-
-ถ้าเจออักษรไทยอย่างน้อย 1 ตัว จะเลือก bilingual OCR สำหรับ Stage 2
-
-### Stage 2 — OCR แบบแม่นยำ
-
-ระบบมี execution mode จริงเพียง 2 แบบ
-
-ถ้าพบภาษาไทย:
-
-- iOS: `th-TH` + `en-US`, `.accurate`, เปิด language correction
-- Android: `tha+eng`, `PSM_AUTO`, ใช้ `tessdata_best`
-
-ถ้าไม่พบภาษาไทย:
-
-- iOS: `en-US`, `.accurate`
-- Android: `eng`, `PSM_AUTO`
-
-**ไม่มีโหมดไทยล้วน** เมื่อเปิดการอ่านภาษาไทย ระบบจะเปิดอังกฤษควบคู่ไปด้วยเสมอ เพื่อรองรับเอกสารไทยที่มีตัวเลข คำอังกฤษ ชื่อแบรนด์ รหัส หรือข้อความสองภาษาอยู่ในภาพเดียวกัน
-
-ค่า `containsThai` สุดท้ายไม่ได้อิงแค่ Stage 1 แต่ตรวจผล Stage 2 ด้วย ดังนั้นถ้า detector รอบแรกพลาด แต่ accurate OCR อ่านเจอภาษาไทย ผลลัพธ์สุดท้ายก็ยังเป็น `true`
-
-## วิธีใช้งาน
-
-```dart
-import 'package:thai_native_ocr/thai_native_ocr.dart';
-
-final result = await ThaiNativeOcr.recognize('/path/to/image.jpg');
-
-print(result.text);
-print(result.containsThai);
-print(result.detectedLanguage); // th, en, mixed
-print(result.confidence);       // 0.0 - 1.0
-```
-
-ค่าที่ได้จาก `ThaiOcrResult`:
-
-- `text` — ข้อความจาก accurate OCR pass
-- `containsThai` — พบอักษรไทยหรือไม่
-- `detectedLanguage` — `th`, `en` หรือ `mixed`
-- `confidence` — confidence ที่ normalize เป็น `0.0..1.0`
-
-## ข้ามระบบ Auto-detect
-
-ถ้ารู้อยู่แล้วว่าเอกสารอาจมีทั้งไทยและอังกฤษ สามารถข้าม Stage 1 ได้:
-
-```dart
-final result = await ThaiNativeOcr.recognize(
-  imagePath,
-  autoDetectThai: false,
-);
-```
-
-ระบบจะเข้า accurate bilingual OCR โดยตรง
-
-หรือบังคับ strategy ด้วย `forceLanguage`:
-
-```dart
-await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'en');    // อังกฤษล้วน
-await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'mixed'); // ไทย + อังกฤษ
-await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'th');    // alias เดิมของไทย + อังกฤษ
-```
-
-`th` ถูกเก็บไว้เพื่อ backward compatibility เท่านั้น และทำงานเหมือน `mixed` ทุกประการ ไม่ได้เรียก OCR แบบไทยล้วน ส่วน `forceLanguage` มี priority สูงกว่า `autoDetectThai`
-
-## Requirement ของ Platform
+## Requirement
 
 - Flutter 3.10+
 - Dart 3.2+
 - iOS 13.0+
 - Android minSdk 21+
 
-## กฎสำคัญของ iOS
-
-ฝั่ง iOS ต้องคง architecture แบบ Vision-only:
-
-- ห้ามเพิ่ม Tesseract pod
-- ห้าม import Tesseract
-- ห้ามเพิ่ม `tessdata` เข้า podspec
-- ห้ามเพิ่ม Tesseract-specific file path handling
-
-เงื่อนไขนี้ไม่ใช่ข้อจำกัดชั่วคราว แต่เป็นส่วนหนึ่งของ architecture เพื่อป้องกันปัญหา traineddata path บน iOS โดยตรง
-
-ดูรายละเอียดเส้นทางการทำงานของโค้ดเพิ่มเติมได้ที่ [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md) ซึ่งมีทั้งภาษาอังกฤษและภาษาไทย
+License หลักของ package เป็น MIT และรายละเอียด third-party อยู่ใน `THIRD_PARTY_NOTICES.md`
