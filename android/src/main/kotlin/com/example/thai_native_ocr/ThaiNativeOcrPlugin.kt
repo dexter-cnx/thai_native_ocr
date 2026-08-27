@@ -86,6 +86,7 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                         bitmap = detectorBitmap,
                         language = "tha+eng",
                         pageSegMode = TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT,
+                        dataPath = modelDataPath(ModelProfile.FAST),
                     )
                     stage1ContainsThai = THAI_REGEX.containsMatchIn(stage1.text)
                 } finally {
@@ -101,6 +102,7 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 bitmap = stage2Bitmap,
                 language = stage2Language,
                 pageSegMode = TessBaseAPI.PageSegMode.PSM_AUTO,
+                dataPath = modelDataPath(ModelProfile.BEST),
             )
         } finally {
             if (stage2Bitmap !== bitmap) stage2Bitmap.recycle()
@@ -194,10 +196,11 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         bitmap: Bitmap,
         language: String,
         pageSegMode: Int,
+        dataPath: String,
     ): OcrPass {
         val api = TessBaseAPI()
         try {
-            val initialized = api.init(context.filesDir.absolutePath, language)
+            val initialized = api.init(dataPath, language)
             if (!initialized) {
                 throw IllegalStateException("Tesseract init failed for language: $language")
             }
@@ -213,28 +216,35 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    /** Copies bundled tessdata_fast files once per bundled model revision. */
+    /** Copies bundled fast detector and best recognition models once per revision. */
     private fun ensureTessdata() {
-        val tessdataDir = File(context.filesDir, "tessdata")
+        ensureModelProfile(ModelProfile.FAST)
+        ensureModelProfile(ModelProfile.BEST)
+    }
+
+    private fun ensureModelProfile(profile: ModelProfile) {
+        val dataRoot = File(context.filesDir, "thai_native_ocr/${profile.directory}")
+        val tessdataDir = File(dataRoot, "tessdata")
         if (!tessdataDir.exists() && !tessdataDir.mkdirs()) {
             throw IllegalStateException("Unable to create ${tessdataDir.absolutePath}")
         }
 
-        val marker = File(tessdataDir, ".thai_native_ocr_model_version")
-        val modelsReady = marker.takeIf { it.exists() }?.readText() == MODEL_VERSION &&
+        val marker = File(dataRoot, ".model_version")
+        val modelsReady = marker.takeIf { it.exists() }?.readText() == profile.version &&
             TRAINED_DATA_FILES.all { File(tessdataDir, it).length() > 0L }
         if (modelsReady) return
 
         for (name in TRAINED_DATA_FILES) {
             val target = File(tessdataDir, name)
-            context.assets.open("tessdata/$name").use { input ->
-                FileOutputStream(target, false).use { output ->
-                    input.copyTo(output)
-                }
+            context.assets.open("${profile.assetDirectory}/$name").use { input ->
+                FileOutputStream(target, false).use { output -> input.copyTo(output) }
             }
         }
-        marker.writeText(MODEL_VERSION)
+        marker.writeText(profile.version)
     }
+
+    private fun modelDataPath(profile: ModelProfile): String =
+        File(context.filesDir, "thai_native_ocr/${profile.directory}").absolutePath
 
     private fun normalizeImagePath(path: String): String =
         if (path.startsWith("file://")) android.net.Uri.parse(path).path ?: path else path
@@ -255,11 +265,19 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     private data class OcrPass(val text: String, val confidence: Double)
 
+    private enum class ModelProfile(
+        val directory: String,
+        val assetDirectory: String,
+        val version: String,
+    ) {
+        FAST("fast", "tessdata_fast", "tessdata_fast-v1"),
+        BEST("best", "tessdata_best", "tessdata_best-v1"),
+    }
+
     private companion object {
         const val DETECTOR_MAX_DIMENSION = 960
         const val ADAPTIVE_BLOCK_SIZE = 31
         const val ADAPTIVE_C = 10
-        const val MODEL_VERSION = "tessdata_fast-v1"
         val THAI_REGEX = Regex("[\\u0E00-\\u0E7F]")
         val LATIN_REGEX = Regex("[A-Za-z]")
         val TRAINED_DATA_FILES = listOf("tha.traineddata", "eng.traineddata")
