@@ -1,0 +1,48 @@
+name: Bootstrap example runners
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/bootstrap-example-runners.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android/iOS example runners
+        working-directory: example
+        run: flutter create --platforms=android,ios .
+      - name: Restore curated example entrypoint and dependencies
+        run: |
+          git checkout -- example/lib/main.dart example/pubspec.yaml
+      - name: Ensure iOS photo library usage description
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('example/ios/Runner/Info.plist')
+          text = p.read_text()
+          key = '<key>NSPhotoLibraryUsageDescription</key>'
+          if key not in text:
+              text = text.replace('</dict>\n</plist>', '  <key>NSPhotoLibraryUsageDescription</key>\n  <string>Select an image for OCR.</string>\n</dict>\n</plist>')
+              p.write_text(text)
+          PY
+      - name: Commit generated runners
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add example/android example/ios example/.gitignore example/README.md example/test || true
+          if git diff --cached --quiet; then
+            echo 'No runner changes to commit.'
+          else
+            git commit -m 'build: generate example Android and iOS runners'
+            git push
+          fi
