@@ -26,7 +26,8 @@ class ThaiOcrResult {
       text: map['text'] as String? ?? '',
       containsThai: map['containsThai'] as bool? ?? false,
       detectedLanguage: map['detectedLanguage'] as String? ?? 'en',
-      confidence: (map['confidence'] as num?)?.toDouble().clamp(0.0, 1.0) ?? 0.0,
+      confidence:
+          (map['confidence'] as num?)?.toDouble().clamp(0.0, 1.0) ?? 0.0,
     );
   }
 }
