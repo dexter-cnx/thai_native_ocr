@@ -1,8 +1,11 @@
+import CoreImage
 import Flutter
 import UIKit
 import Vision
 
 public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
+  private let ciContext = CIContext(options: nil)
+
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "thai_native_ocr", binaryMessenger: registrar.messenger())
     let instance = ThaiNativeOcrPlugin()
@@ -15,17 +18,25 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
       return
     }
 
-    guard
-      let arguments = call.arguments as? [String: Any],
-      let imagePath = arguments["imagePath"] as? String,
-      !imagePath.isEmpty
-    else {
-      result(FlutterError(code: "INVALID_ARGUMENT", message: "imagePath is required.", details: nil))
+    guard let arguments = call.arguments as? [String: Any] else {
+      result(FlutterError(code: "INVALID_ARGUMENT", message: "OCR arguments are required.", details: nil))
+      return
+    }
+
+    let imagePath = arguments["imagePath"] as? String
+    let imageBytes = (arguments["imageBytes"] as? FlutterStandardTypedData)?.data
+    guard (imagePath?.isEmpty == false) || (imageBytes?.isEmpty == false) else {
+      result(FlutterError(
+        code: "INVALID_ARGUMENT",
+        message: "imagePath or imageBytes is required.",
+        details: nil
+      ))
       return
     }
 
     let autoDetectThai = arguments["autoDetectThai"] as? Bool ?? true
     let forceLanguage = arguments["forceLanguage"] as? String
+    let preprocess = arguments["preprocess"] as? Bool ?? false
 
     if let forceLanguage = forceLanguage, !["th", "en", "mixed"].contains(forceLanguage) {
       result(FlutterError(
@@ -38,11 +49,12 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
 
     DispatchQueue.global(qos: .userInitiated).async {
       do {
-        let image = try self.loadImage(path: imagePath)
+        let image = try self.loadImage(path: imagePath, bytes: imageBytes)
         let output = try self.recognize(
           image: image,
           autoDetectThai: autoDetectThai,
-          forceLanguage: forceLanguage
+          forceLanguage: forceLanguage,
+          preprocess: preprocess
         )
 
         DispatchQueue.main.async {
@@ -68,7 +80,8 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
   private func recognize(
     image: UIImage,
     autoDetectThai: Bool,
-    forceLanguage: String?
+    forceLanguage: String?,
+    preprocess: Bool
   ) throws -> (text: String, containsThai: Bool, detectedLanguage: String, confidence: Float) {
     var stage1ContainsThai = false
     let stage2Languages: [String]
@@ -78,19 +91,13 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
       case "en":
         stage2Languages = ["en-US"]
       case "th", "mixed":
-        // Thai recognition always keeps English enabled. `th` is retained as
-        // a backward-compatible alias for the bilingual strategy.
         stage2Languages = ["th-TH", "en-US"]
       default:
         stage2Languages = ["th-TH", "en-US"]
       }
     } else if !autoDetectThai {
-      // Explicit bypass: skip Stage 1 and run the bilingual accurate model.
       stage2Languages = ["th-TH", "en-US"]
     } else {
-      // Stage 1: lightweight detector. No explicit languages means Vision may
-      // automatically detect the language. The OCR text is used only to decide
-      // which language set the accurate pass should use.
       let stage1 = try runVision(
         image: image,
         languages: [],
@@ -102,9 +109,9 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
       stage2Languages = stage1ContainsThai ? ["th-TH", "en-US"] : ["en-US"]
     }
 
-    // Stage 2 has only two execution modes: bilingual Thai+English or English.
+    let accurateImage = preprocess ? try preprocessImage(image) : image
     let stage2 = try runVision(
-      image: image,
+      image: accurateImage,
       languages: stage2Languages,
       level: .accurate,
       usesLanguageCorrection: stage2Languages.contains("th-TH"),
@@ -115,20 +122,6 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
     let detectedLanguage = detectLanguage(in: stage2.text, containsThai: finalContainsThai)
 
     return (stage2.text, finalContainsThai, detectedLanguage, stage2.confidence)
-  }
-
-  private func runVision(
-    image: UIImage,
-    languages: [String],
-    level: VNRequestTextRecognitionLevel
-  ) throws -> (text: String, confidence: Float) {
-    try runVision(
-      image: image,
-      languages: languages,
-      level: level,
-      usesLanguageCorrection: level == .accurate,
-      automaticallyDetectsLanguage: languages.isEmpty
-    )
   }
 
   private func runVision(
@@ -190,6 +183,25 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
     return (text, min(max(confidence, 0), 1))
   }
 
+  private func preprocessImage(_ image: UIImage) throws -> UIImage {
+    guard let ciImage = CIImage(image: image),
+          let filter = CIFilter(name: "CIColorControls") else {
+      throw OcrError.invalidImage
+    }
+
+    filter.setValue(ciImage, forKey: kCIInputImageKey)
+    filter.setValue(0.0, forKey: kCIInputSaturationKey)
+    filter.setValue(1.35, forKey: kCIInputContrastKey)
+    filter.setValue(0.04, forKey: kCIInputBrightnessKey)
+
+    guard let output = filter.outputImage,
+          let cgImage = ciContext.createCGImage(output, from: output.extent) else {
+      throw OcrError.invalidImage
+    }
+
+    return UIImage(cgImage: cgImage, scale: image.scale, orientation: image.imageOrientation)
+  }
+
   private func containsThai(_ text: String) -> Bool {
     guard let regex = try? NSRegularExpression(pattern: "[\\u0E00-\\u0E7F]") else {
       return false
@@ -209,7 +221,15 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
     return "en"
   }
 
-  private func loadImage(path: String) throws -> UIImage {
+  private func loadImage(path: String?, bytes: Data?) throws -> UIImage {
+    if let bytes = bytes, !bytes.isEmpty, let image = UIImage(data: bytes) {
+      return image
+    }
+
+    guard let path = path, !path.isEmpty else {
+      throw OcrError.imageNotFound
+    }
+
     let resolvedPath: String
     if let url = URL(string: path), url.isFileURL {
       resolvedPath = url.path
@@ -221,9 +241,6 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
       return image
     }
 
-    // Some Flutter image providers return a file URL outside the plugin's
-    // preferred temporary location. Copying is a fallback only; Vision itself
-    // never depends on a Tesseract-style bundle/resource path.
     let sourceURL = URL(fileURLWithPath: resolvedPath)
     let tempURL = FileManager.default.temporaryDirectory
       .appendingPathComponent("thai_native_ocr_\(UUID().uuidString)")
@@ -264,9 +281,9 @@ private enum OcrError: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .imageNotFound:
-      return "Unable to load the image from imagePath."
+      return "Unable to load the image from imagePath or imageBytes."
     case .invalidImage:
-      return "Unable to create a CGImage for Vision OCR."
+      return "Unable to prepare the image for Vision OCR."
     }
   }
 }
