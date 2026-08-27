@@ -1,0 +1,39 @@
+name: Normalize pub state
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/normalize-pub-state.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve and apply Flutter migrations
+        run: flutter pub get
+      - name: Format with package language version
+        run: dart format lib test example/lib
+      - name: Commit normalized state
+        shell: bash
+        run: |
+          if git diff --quiet -- analysis_options.yaml lib test example/lib; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add analysis_options.yaml lib test example/lib
+          git commit -m 'chore: normalize Flutter pub state [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
