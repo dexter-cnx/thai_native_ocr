@@ -5,7 +5,7 @@
 - Added optional `preprocess` OCR image enhancement.
 - Hardened Android Thai detection with a downscaled bilingual `tha+eng` detector pass using `PSM_SPARSE_TEXT`.
 - Switched Android from legacy `tess-two` to Tesseract4Android 4.9.0 / Tesseract 5.5.1.
-- Switched bundled Android language models from `tessdata_best` to smaller `tessdata_fast` models.
+- Split Android OCR models by responsibility: Stage 1 uses bundled `tessdata_fast` Thai + English models, while Stage 2 accurate OCR uses bundled `tessdata_best` Thai + English models.
 - Kept only two accurate OCR execution modes: Thai + English and English-only.
 - Improved the example app and native build validation for Android and iOS.
 
