@@ -43,14 +43,16 @@ class ThaiNativeOcr {
   /// Recognizes text from [imagePath].
   ///
   /// With [autoDetectThai] enabled (default), native code performs a fast
-  /// Stage 1 Thai detector before choosing the language set for the accurate
-  /// Stage 2 OCR pass.
+  /// Stage 1 Thai detector before choosing one of two accurate Stage 2 modes:
+  /// Thai + English when Thai is detected, or English only otherwise.
   ///
   /// When [autoDetectThai] is false, Stage 1 is skipped and the accurate pass
   /// uses Thai + English directly.
   ///
-  /// [forceLanguage] bypasses detection and accepts only `th`, `en`, or
-  /// `mixed`. It takes precedence over [autoDetectThai].
+  /// [forceLanguage] bypasses detection and accepts `th`, `en`, or `mixed`.
+  /// `en` forces English-only OCR. Both `mixed` and the backward-compatible
+  /// `th` alias force Thai + English OCR; there is no Thai-only execution mode.
+  /// It takes precedence over [autoDetectThai].
   static Future<ThaiOcrResult> recognize(
     String imagePath, {
     bool autoDetectThai = true,
