@@ -15,17 +15,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Download tessdata_best models
+      - name: Download tessdata_fast models
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p android/src/main/assets/tessdata
           curl -L --fail --retry 3 \
             -o android/src/main/assets/tessdata/tha.traineddata \
-            https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/tha.traineddata
+            https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/tha.traineddata
           curl -L --fail --retry 3 \
             -o android/src/main/assets/tessdata/eng.traineddata \
-            https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/eng.traineddata
+            https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/eng.traineddata
           test -s android/src/main/assets/tessdata/tha.traineddata
           test -s android/src/main/assets/tessdata/eng.traineddata
       - name: Commit traineddata assets
@@ -40,5 +40,5 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add android/src/main/assets/tessdata/tha.traineddata \
                   android/src/main/assets/tessdata/eng.traineddata
-          git commit -m 'build: add tessdata_best Thai and English models [skip ci]'
+          git commit -m 'build: bundle tessdata_fast Thai and English models [skip ci]'
           git push
