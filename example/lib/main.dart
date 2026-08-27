@@ -6,10 +6,7 @@ void main() {
   runApp(const ThaiNativeOcrExampleApp());
 }
 
-/// Minimal gallery-based example for `thai_native_ocr`.
-///
-/// Pick a local image, run the native OCR plugin, and inspect the detected
-/// language, Thai signal, confidence, and recognized text.
+/// Camera/gallery example for `thai_native_ocr`.
 class ThaiNativeOcrExampleApp extends StatelessWidget {
   /// Creates the example application.
   const ThaiNativeOcrExampleApp({super.key});
@@ -24,7 +21,7 @@ class ThaiNativeOcrExampleApp extends StatelessWidget {
   }
 }
 
-/// Page that picks an image and displays OCR output.
+/// Page that captures or picks an image and displays OCR output.
 class OcrPage extends StatefulWidget {
   /// Creates the OCR example page.
   const OcrPage({super.key});
@@ -37,10 +34,11 @@ class _OcrPageState extends State<OcrPage> {
   final _picker = ImagePicker();
   ThaiOcrResult? _result;
   bool _busy = false;
+  bool _preprocess = true;
   String? _error;
 
-  Future<void> _pickAndRecognize() async {
-    final image = await _picker.pickImage(source: ImageSource.gallery);
+  Future<void> _pickAndRecognize(ImageSource source) async {
+    final image = await _picker.pickImage(source: source, imageQuality: 95);
     if (image == null) return;
 
     setState(() {
@@ -50,7 +48,10 @@ class _OcrPageState extends State<OcrPage> {
     });
 
     try {
-      final result = await ThaiNativeOcr.recognize(image.path);
+      final result = await ThaiNativeOcr.recognizeFile(
+        XFileAdapter(image),
+        preprocess: _preprocess,
+      );
       if (!mounted) return;
       setState(() => _result = result);
     } catch (error) {
@@ -63,17 +64,41 @@ class _OcrPageState extends State<OcrPage> {
 
   @override
   Widget build(BuildContext context) {
+    final result = _result;
+
     return Scaffold(
       appBar: AppBar(title: const Text('thai_native_ocr example')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          FilledButton.icon(
-            onPressed: _busy ? null : _pickAndRecognize,
-            icon: const Icon(Icons.image_search),
-            label: Text(_busy ? 'Recognizing…' : 'Pick image and recognize'),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              FilledButton.icon(
+                onPressed: _busy
+                    ? null
+                    : () => _pickAndRecognize(ImageSource.camera),
+                icon: const Icon(Icons.camera_alt_outlined),
+                label: const Text('Take photo'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _busy
+                    ? null
+                    : () => _pickAndRecognize(ImageSource.gallery),
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('Pick image'),
+              ),
+            ],
           ),
-          const SizedBox(height: 24),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('OCR preprocessing'),
+            subtitle: const Text('Grayscale / contrast / adaptive threshold'),
+            value: _preprocess,
+            onChanged: _busy ? null : (value) => setState(() => _preprocess = value),
+          ),
+          const SizedBox(height: 12),
           if (_busy) const LinearProgressIndicator(),
           if (_error case final error?) ...[
             Text(
@@ -81,8 +106,20 @@ class _OcrPageState extends State<OcrPage> {
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ],
-          if (_result case final result?) ...[
-            Text('containsThai: ${result.containsThai}'),
+          if (result != null) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Chip(
+                avatar: Icon(
+                  result.containsThai ? Icons.check_circle : Icons.language,
+                  size: 18,
+                ),
+                label: Text(
+                  result.containsThai ? 'Thai detected' : 'English only',
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             Text('detectedLanguage: ${result.detectedLanguage}'),
             Text('confidence: ${result.confidence.toStringAsFixed(3)}'),
             const Divider(height: 32),
@@ -92,4 +129,10 @@ class _OcrPageState extends State<OcrPage> {
       ),
     );
   }
+}
+
+/// Minimal `File` adapter for an [XFile] path without copying image bytes.
+class XFileAdapter extends java.io.File {
+  /// Creates a file adapter for [file].
+  XFileAdapter(XFile file) : super(file.path);
 }
