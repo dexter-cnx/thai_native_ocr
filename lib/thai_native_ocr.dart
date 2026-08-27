@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
 
 /// Result returned by native OCR.
@@ -40,45 +43,96 @@ class ThaiNativeOcr {
 
   static const MethodChannel _channel = MethodChannel('thai_native_ocr');
 
-  /// Recognizes text from [imagePath].
+  /// Recognizes text from an image at [imagePath].
   ///
   /// With [autoDetectThai] enabled (default), native code performs a fast
-  /// Stage 1 Thai detector before choosing one of two accurate Stage 2 modes:
-  /// Thai + English when Thai is detected, or English only otherwise.
+  /// Stage 1 Thai detector before choosing one of two accurate OCR modes:
+  /// Thai + English when Thai is detected, or English-only otherwise.
   ///
   /// When [autoDetectThai] is false, Stage 1 is skipped and the accurate pass
   /// uses Thai + English directly.
   ///
-  /// [forceLanguage] bypasses detection and accepts `th`, `en`, or `mixed`.
-  /// `en` forces English-only OCR. Both `mixed` and the backward-compatible
-  /// `th` alias force Thai + English OCR; there is no Thai-only execution mode.
-  /// It takes precedence over [autoDetectThai].
+  /// [forceLanguage] bypasses detection and accepts only `th`, `en`, or
+  /// `mixed`. `th` is retained as a compatibility alias for bilingual
+  /// Thai + English recognition; there is no Thai-only execution mode.
+  ///
+  /// When [preprocess] is true, native code applies OCR-oriented image
+  /// preprocessing before the accurate pass.
   static Future<ThaiOcrResult> recognize(
     String imagePath, {
     bool autoDetectThai = true,
     String? forceLanguage,
-  }) async {
+    bool preprocess = false,
+  }) {
     if (imagePath.trim().isEmpty) {
       throw ArgumentError.value(imagePath, 'imagePath', 'must not be empty');
     }
 
-    if (forceLanguage != null &&
-        forceLanguage != 'th' &&
-        forceLanguage != 'en' &&
-        forceLanguage != 'mixed') {
-      throw ArgumentError.value(
-        forceLanguage,
-        'forceLanguage',
-        "must be one of 'th', 'en', or 'mixed'",
-      );
+    return _recognize(
+      imagePath: imagePath,
+      autoDetectThai: autoDetectThai,
+      forceLanguage: forceLanguage,
+      preprocess: preprocess,
+    );
+  }
+
+  /// Recognizes text from [file].
+  ///
+  /// This is a convenience wrapper around [recognize].
+  static Future<ThaiOcrResult> recognizeFile(
+    File file, {
+    bool autoDetectThai = true,
+    String? forceLanguage,
+    bool preprocess = false,
+  }) {
+    return recognize(
+      file.path,
+      autoDetectThai: autoDetectThai,
+      forceLanguage: forceLanguage,
+      preprocess: preprocess,
+    );
+  }
+
+  /// Recognizes text directly from encoded image [bytes].
+  ///
+  /// Bytes are sent directly over the platform channel. iOS constructs the
+  /// Vision request from in-memory image data, so no temporary image file is
+  /// required.
+  static Future<ThaiOcrResult> recognizeBytes(
+    Uint8List bytes, {
+    bool autoDetectThai = true,
+    String? forceLanguage,
+    bool preprocess = false,
+  }) {
+    if (bytes.isEmpty) {
+      throw ArgumentError.value(bytes, 'bytes', 'must not be empty');
     }
+
+    return _recognize(
+      imageBytes: bytes,
+      autoDetectThai: autoDetectThai,
+      forceLanguage: forceLanguage,
+      preprocess: preprocess,
+    );
+  }
+
+  static Future<ThaiOcrResult> _recognize({
+    String? imagePath,
+    Uint8List? imageBytes,
+    required bool autoDetectThai,
+    required String? forceLanguage,
+    required bool preprocess,
+  }) async {
+    _validateForceLanguage(forceLanguage);
 
     final result = await _channel.invokeMapMethod<Object?, Object?>(
       'recognize',
       <String, Object?>{
-        'imagePath': imagePath,
+        if (imagePath != null) 'imagePath': imagePath,
+        if (imageBytes != null) 'imageBytes': imageBytes,
         'autoDetectThai': autoDetectThai,
         'forceLanguage': forceLanguage,
+        'preprocess': preprocess,
       },
     );
 
@@ -90,5 +144,18 @@ class ThaiNativeOcr {
     }
 
     return ThaiOcrResult.fromMap(result);
+  }
+
+  static void _validateForceLanguage(String? forceLanguage) {
+    if (forceLanguage != null &&
+        forceLanguage != 'th' &&
+        forceLanguage != 'en' &&
+        forceLanguage != 'mixed') {
+      throw ArgumentError.value(
+        forceLanguage,
+        'forceLanguage',
+        "must be one of 'th', 'en', or 'mixed'",
+      );
+    }
   }
 }
