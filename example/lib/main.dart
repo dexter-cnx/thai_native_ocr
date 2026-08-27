@@ -69,7 +69,10 @@ class _OcrPageState extends State<OcrPage> {
           const SizedBox(height: 24),
           if (_busy) const LinearProgressIndicator(),
           if (_error case final error?) ...[
-            Text(error, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            Text(
+              error,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           ],
           if (_result case final result?) ...[
             Text('containsThai: ${result.containsThai}'),
