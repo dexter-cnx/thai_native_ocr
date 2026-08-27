@@ -213,24 +213,27 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    /** Copies bundled tessdata_fast files once into filesDir/tessdata/. */
+    /** Copies bundled tessdata_fast files once per bundled model revision. */
     private fun ensureTessdata() {
         val tessdataDir = File(context.filesDir, "tessdata")
         if (!tessdataDir.exists() && !tessdataDir.mkdirs()) {
             throw IllegalStateException("Unable to create ${tessdataDir.absolutePath}")
         }
 
+        val marker = File(tessdataDir, ".thai_native_ocr_model_version")
+        val modelsReady = marker.takeIf { it.exists() }?.readText() == MODEL_VERSION &&
+            TRAINED_DATA_FILES.all { File(tessdataDir, it).length() > 0L }
+        if (modelsReady) return
+
         for (name in TRAINED_DATA_FILES) {
             val target = File(tessdataDir, name)
-            val assetLength = context.assets.openFd("tessdata/$name").length
-            if (target.exists() && target.length() == assetLength) continue
-
             context.assets.open("tessdata/$name").use { input ->
                 FileOutputStream(target, false).use { output ->
                     input.copyTo(output)
                 }
             }
         }
+        marker.writeText(MODEL_VERSION)
     }
 
     private fun normalizeImagePath(path: String): String =
@@ -256,6 +259,7 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         const val DETECTOR_MAX_DIMENSION = 960
         const val ADAPTIVE_BLOCK_SIZE = 31
         const val ADAPTIVE_C = 10
+        const val MODEL_VERSION = "tessdata_fast-v1"
         val THAI_REGEX = Regex("[\\u0E00-\\u0E7F]")
         val LATIN_REGEX = Regex("[A-Za-z]")
         val TRAINED_DATA_FILES = listOf("tha.traineddata", "eng.traineddata")
