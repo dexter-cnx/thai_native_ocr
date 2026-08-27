@@ -75,10 +75,12 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
 
     if let forceLanguage = forceLanguage {
       switch forceLanguage {
-      case "th":
-        stage2Languages = ["th-TH"]
       case "en":
         stage2Languages = ["en-US"]
+      case "th", "mixed":
+        // Thai recognition always keeps English enabled. `th` is retained as
+        // a backward-compatible alias for the bilingual strategy.
+        stage2Languages = ["th-TH", "en-US"]
       default:
         stage2Languages = ["th-TH", "en-US"]
       }
@@ -100,7 +102,7 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
       stage2Languages = stage1ContainsThai ? ["th-TH", "en-US"] : ["en-US"]
     }
 
-    // Stage 2: accurate OCR chosen from the Stage 1 signal (or bypass option).
+    // Stage 2 has only two execution modes: bilingual Thai+English or English.
     let stage2 = try runVision(
       image: image,
       languages: stage2Languages,
