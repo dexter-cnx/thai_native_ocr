@@ -4,7 +4,7 @@ Native OCR for Flutter with a hybrid platform implementation:
 
 - **iOS:** Apple Vision only. No Tesseract dependency and no `tessdata` bundle.
 - **Android:** Tesseract via `tess-two`, with Thai + English `tessdata_best` models.
-- **Two-stage Thai auto-detection:** run a lightweight detector first, then select the accurate OCR language set.
+- **Two-stage Thai auto-detection:** run a lightweight detector first, then select one of two accurate OCR modes: Thai + English or English only.
 
 > ภาษาไทยอยู่ด้านล่าง — [อ่าน README ภาษาไทย](#ภาษาไทย)
 
@@ -26,19 +26,23 @@ When `autoDetectThai` is `true` and `forceLanguage` is not set:
 - **Android:** quick English Tesseract OCR with `PSM_AUTO`.
 - The resulting text is checked for at least one character in the Thai Unicode range `U+0E00..U+0E7F`.
 
-This stage exists to cheaply determine whether the accurate pass should load Thai recognition.
+This stage exists to cheaply determine which accurate OCR mode should be used.
 
 ### Stage 2 — accurate OCR
 
+There are only two execution modes.
+
 If Thai was detected:
 
-- iOS: `th-TH`, `en-US`, `.accurate`, language correction enabled.
+- iOS: `th-TH` + `en-US`, `.accurate`, language correction enabled.
 - Android: `tha+eng`, `PSM_AUTO`, using `tessdata_best`.
 
 Otherwise:
 
 - iOS: `en-US`, `.accurate`.
 - Android: `eng`, `PSM_AUTO`.
+
+There is intentionally **no Thai-only OCR mode**. Whenever Thai recognition is enabled, English recognition remains enabled as well.
 
 `containsThai` in the returned result reflects the final OCR text as well as the Stage 1 signal, so a Thai character discovered during the accurate pass is not lost.
 
@@ -69,12 +73,12 @@ final result = await ThaiNativeOcr.recognize(
 Or force the language strategy:
 
 ```dart
-await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'th');
-await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'en');
-await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'mixed');
+await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'en');    // English only
+await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'mixed'); // Thai + English
+await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'th');    // backward-compatible alias for Thai + English
 ```
 
-`forceLanguage` accepts only `th`, `en`, or `mixed`. It takes precedence over `autoDetectThai`.
+`forceLanguage` accepts `th`, `en`, or `mixed`. `th` is retained for backward compatibility but behaves exactly like `mixed`; it does not enable a Thai-only OCR pass. `forceLanguage` takes precedence over `autoDetectThai`.
 
 ## Platform requirements
 
@@ -104,7 +108,7 @@ For implementation details, see [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md).
 
 - **iOS:** ใช้ Apple Vision เท่านั้น ไม่มี Tesseract และไม่มี `tessdata`
 - **Android:** ใช้ Tesseract ผ่าน `tess-two` พร้อมโมเดลภาษาไทยและอังกฤษจาก `tessdata_best`
-- **ตรวจภาษาไทยแบบ 2 Stage:** ตรวจแบบเร็วรอบแรก แล้วค่อยเลือก OCR configuration ที่เหมาะสมในรอบแม่นยำ
+- **ตรวจภาษาไทยแบบ 2 Stage:** ตรวจแบบเร็วรอบแรก แล้วเลือก OCR แบบแม่นยำเพียง 2 แบบ คือ **ไทย+อังกฤษ** หรือ **อังกฤษล้วน**
 
 ## ทำไม package นี้แก้ปัญหา Tesseract file not found บน iOS ได้
 
@@ -167,6 +171,8 @@ regex ที่ใช้มีแนวคิดเทียบเท่าก�
 
 ### Stage 2 — OCR แบบแม่นยำ
 
+ระบบมี execution mode จริงเพียง 2 แบบ
+
 ถ้าพบภาษาไทย:
 
 - iOS: `th-TH` + `en-US`, `.accurate`, เปิด language correction
@@ -176,6 +182,8 @@ regex ที่ใช้มีแนวคิดเทียบเท่าก�
 
 - iOS: `en-US`, `.accurate`
 - Android: `eng`, `PSM_AUTO`
+
+**ไม่มีโหมดไทยล้วน** เมื่อเปิดการอ่านภาษาไทย ระบบจะเปิดอังกฤษควบคู่ไปด้วยเสมอ เพื่อรองรับเอกสารไทยที่มีตัวเลข คำอังกฤษ ชื่อแบรนด์ รหัส หรือข้อความสองภาษาอยู่ในภาพเดียวกัน
 
 ค่า `containsThai` สุดท้ายไม่ได้อิงแค่ Stage 1 แต่ตรวจผล Stage 2 ด้วย ดังนั้นถ้า detector รอบแรกพลาด แต่ accurate OCR อ่านเจอภาษาไทย ผลลัพธ์สุดท้ายก็ยังเป็น `true`
 
@@ -215,12 +223,12 @@ final result = await ThaiNativeOcr.recognize(
 หรือบังคับ strategy ด้วย `forceLanguage`:
 
 ```dart
-await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'th');
-await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'en');
-await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'mixed');
+await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'en');    // อังกฤษล้วน
+await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'mixed'); // ไทย + อังกฤษ
+await ThaiNativeOcr.recognize(imagePath, forceLanguage: 'th');    // alias เดิมของไทย + อังกฤษ
 ```
 
-`forceLanguage` มี priority สูงกว่า `autoDetectThai`
+`th` ถูกเก็บไว้เพื่อ backward compatibility เท่านั้น และทำงานเหมือน `mixed` ทุกประการ ไม่ได้เรียก OCR แบบไทยล้วน ส่วน `forceLanguage` มี priority สูงกว่า `autoDetectThai`
 
 ## Requirement ของ Platform
 
