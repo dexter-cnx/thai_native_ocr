@@ -17,31 +17,41 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Download tessdata_fast models
+      - name: Download detector and recognition models
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p android/src/main/assets/tessdata
-          curl -L --fail --retry 3 \
-            -o android/src/main/assets/tessdata/tha.traineddata \
-            https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/tha.traineddata
-          curl -L --fail --retry 3 \
-            -o android/src/main/assets/tessdata/eng.traineddata \
-            https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/eng.traineddata
-          test -s android/src/main/assets/tessdata/tha.traineddata
-          test -s android/src/main/assets/tessdata/eng.traineddata
+
+          fast_dir=android/src/main/assets/tessdata_fast
+          best_dir=android/src/main/assets/tessdata_best
+          mkdir -p "$fast_dir" "$best_dir"
+
+          for lang in tha eng; do
+            curl -L --fail --retry 3 \
+              -o "$fast_dir/$lang.traineddata" \
+              "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/$lang.traineddata"
+            curl -L --fail --retry 3 \
+              -o "$best_dir/$lang.traineddata" \
+              "https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/$lang.traineddata"
+            test -s "$fast_dir/$lang.traineddata"
+            test -s "$best_dir/$lang.traineddata"
+          done
+
+          # Remove the old single-model-set layout once the split assets exist.
+          rm -rf android/src/main/assets/tessdata
       - name: Commit traineddata assets
         shell: bash
         run: |
-          if git diff --quiet -- android/src/main/assets/tessdata && \
-             git ls-files --error-unmatch android/src/main/assets/tessdata/tha.traineddata >/dev/null 2>&1 && \
-             git ls-files --error-unmatch android/src/main/assets/tessdata/eng.traineddata >/dev/null 2>&1; then
+          if git diff --quiet -- android/src/main/assets && \
+             git ls-files --error-unmatch android/src/main/assets/tessdata_fast/tha.traineddata >/dev/null 2>&1 && \
+             git ls-files --error-unmatch android/src/main/assets/tessdata_fast/eng.traineddata >/dev/null 2>&1 && \
+             git ls-files --error-unmatch android/src/main/assets/tessdata_best/tha.traineddata >/dev/null 2>&1 && \
+             git ls-files --error-unmatch android/src/main/assets/tessdata_best/eng.traineddata >/dev/null 2>&1; then
             exit 0
           fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add android/src/main/assets/tessdata/tha.traineddata \
-                  android/src/main/assets/tessdata/eng.traineddata
-          git commit -m 'build: bundle tessdata_fast Thai and English models [skip ci]'
+          git add -A android/src/main/assets
+          git commit -m 'build: bundle fast detector and best OCR models [skip ci]'
           git pull --rebase origin main
           git push origin HEAD:main
