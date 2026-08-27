@@ -1,0 +1,34 @@
+name: Format fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/format-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Format Dart sources
+        run: dart format lib test example/lib
+      - name: Commit formatting
+        shell: bash
+        run: |
+          if git diff --quiet -- lib test example/lib; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add lib test example/lib
+          git commit -m 'style: format Dart sources [skip ci]'
+          git push
