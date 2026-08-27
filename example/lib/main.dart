@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:thai_native_ocr/thai_native_ocr.dart';
@@ -49,7 +51,7 @@ class _OcrPageState extends State<OcrPage> {
 
     try {
       final result = await ThaiNativeOcr.recognizeFile(
-        XFileAdapter(image),
+        File(image.path),
         preprocess: _preprocess,
       );
       if (!mounted) return;
@@ -96,7 +98,9 @@ class _OcrPageState extends State<OcrPage> {
             title: const Text('OCR preprocessing'),
             subtitle: const Text('Grayscale / contrast / adaptive threshold'),
             value: _preprocess,
-            onChanged: _busy ? null : (value) => setState(() => _preprocess = value),
+            onChanged: _busy
+                ? null
+                : (value) => setState(() => _preprocess = value),
           ),
           const SizedBox(height: 12),
           if (_busy) const LinearProgressIndicator(),
@@ -129,10 +133,4 @@ class _OcrPageState extends State<OcrPage> {
       ),
     );
   }
-}
-
-/// Minimal `File` adapter for an [XFile] path without copying image bytes.
-class XFileAdapter extends java.io.File {
-  /// Creates a file adapter for [file].
-  XFileAdapter(XFile file) : super(file.path);
 }
