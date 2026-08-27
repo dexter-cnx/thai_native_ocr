@@ -5,6 +5,13 @@ analyzer:
     - build/
     - android/
     - ios/
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
 
 linter:
   rules:

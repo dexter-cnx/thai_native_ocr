@@ -78,16 +78,14 @@ class _OcrPageState extends State<OcrPage> {
             runSpacing: 12,
             children: [
               FilledButton.icon(
-                onPressed: _busy
-                    ? null
-                    : () => _pickAndRecognize(ImageSource.camera),
+                onPressed:
+                    _busy ? null : () => _pickAndRecognize(ImageSource.camera),
                 icon: const Icon(Icons.camera_alt_outlined),
                 label: const Text('Take photo'),
               ),
               OutlinedButton.icon(
-                onPressed: _busy
-                    ? null
-                    : () => _pickAndRecognize(ImageSource.gallery),
+                onPressed:
+                    _busy ? null : () => _pickAndRecognize(ImageSource.gallery),
                 icon: const Icon(Icons.photo_library_outlined),
                 label: const Text('Pick image'),
               ),
@@ -98,9 +96,8 @@ class _OcrPageState extends State<OcrPage> {
             title: const Text('OCR preprocessing'),
             subtitle: const Text('Grayscale / contrast / adaptive threshold'),
             value: _preprocess,
-            onChanged: _busy
-                ? null
-                : (value) => setState(() => _preprocess = value),
+            onChanged:
+                _busy ? null : (value) => setState(() => _preprocess = value),
           ),
           const SizedBox(height: 12),
           if (_busy) const LinearProgressIndicator(),
