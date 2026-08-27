@@ -6,7 +6,9 @@ void main() {
   runApp(const ThaiNativeOcrExampleApp());
 }
 
+/// Minimal gallery-based example for `thai_native_ocr`.
 class ThaiNativeOcrExampleApp extends StatelessWidget {
+  /// Creates the example application.
   const ThaiNativeOcrExampleApp({super.key});
 
   @override
@@ -19,7 +21,9 @@ class ThaiNativeOcrExampleApp extends StatelessWidget {
   }
 }
 
+/// Page that picks an image and displays OCR output.
 class OcrPage extends StatefulWidget {
+  /// Creates the OCR example page.
   const OcrPage({super.key});
 
   @override
