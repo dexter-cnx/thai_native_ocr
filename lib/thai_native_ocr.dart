@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 
 /// Result returned by native OCR.
 class ThaiOcrResult {
+  /// Creates an immutable OCR result.
   const ThaiOcrResult({
     required this.text,
     required this.containsThai,
@@ -21,6 +22,7 @@ class ThaiOcrResult {
   /// Mean OCR confidence normalized to the range 0.0–1.0.
   final double confidence;
 
+  /// Creates a result from the platform-channel response map.
   factory ThaiOcrResult.fromMap(Map<Object?, Object?> map) {
     return ThaiOcrResult(
       text: map['text'] as String? ?? '',
@@ -79,7 +81,7 @@ class ThaiNativeOcr {
     );
 
     if (result == null) {
-      throw const PlatformException(
+      throw PlatformException(
         code: 'NULL_RESULT',
         message: 'Native OCR returned no result.',
       );
