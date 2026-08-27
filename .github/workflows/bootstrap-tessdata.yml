@@ -1,0 +1,44 @@
+name: Bootstrap tessdata
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bootstrap-tessdata.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download tessdata_best models
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p android/src/main/assets/tessdata
+          curl -L --fail --retry 3 \
+            -o android/src/main/assets/tessdata/tha.traineddata \
+            https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/tha.traineddata
+          curl -L --fail --retry 3 \
+            -o android/src/main/assets/tessdata/eng.traineddata \
+            https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/eng.traineddata
+          test -s android/src/main/assets/tessdata/tha.traineddata
+          test -s android/src/main/assets/tessdata/eng.traineddata
+      - name: Commit traineddata assets
+        shell: bash
+        run: |
+          if git diff --quiet -- android/src/main/assets/tessdata && \
+             git ls-files --error-unmatch android/src/main/assets/tessdata/tha.traineddata >/dev/null 2>&1 && \
+             git ls-files --error-unmatch android/src/main/assets/tessdata/eng.traineddata >/dev/null 2>&1; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add android/src/main/assets/tessdata/tha.traineddata \
+                  android/src/main/assets/tessdata/eng.traineddata
+          git commit -m 'build: add tessdata_best Thai and English models [skip ci]'
+          git push
