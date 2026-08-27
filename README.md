@@ -8,6 +8,7 @@ Hybrid native Thai OCR for Flutter.
 - **Two-stage detection:** fast Thai detection first, then one of two accurate modes: **Thai + English** or **English only**.
 - Supports image paths, `File`, and in-memory `Uint8List` bytes.
 - Optional OCR-oriented preprocessing for difficult document images.
+- Android traineddata models are bundled with the plugin; app developers do **not** need to download or configure models manually.
 
 > ภาษาไทยอยู่ด้านล่าง — [อ่าน README ภาษาไทย](#ภาษาไทย)
 
@@ -122,6 +123,19 @@ android/src/main/assets/
 
 At runtime the plugin copies each profile into a separate private Tesseract data directory. Stage 1 always initializes the fast profile; Stage 2 always initializes the best profile.
 
+### No manual model setup required
+
+App developers do not need to:
+
+```text
+❌ download tha.traineddata or eng.traineddata
+❌ create a tessdata directory in the host app
+❌ add traineddata to the host app's pubspec assets
+❌ copy models during app startup
+```
+
+The plugin already bundles the models and performs the first-use copy internally. The host app only adds the package dependency and calls the Dart API.
+
 The model assets are Android-native assets only and are never bundled into the iOS plugin.
 
 ## Example
@@ -169,6 +183,7 @@ For implementation details, see [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md).
 - **ตรวจภาษาไทย 2 Stage:** ตรวจแบบเร็วก่อน แล้วเลือก OCR แบบแม่นยำเพียง 2 แบบ คือ **ไทย+อังกฤษ** หรือ **อังกฤษล้วน**
 - รองรับ path, `File` และ `Uint8List`
 - เปิด preprocessing ได้สำหรับภาพเอกสารที่มืดหรือ contrast ไม่สม่ำเสมอ
+- model ฝั่ง Android bundle มากับ plugin แล้ว dev ไม่ต้อง download หรือเพิ่ม traineddata เอง
 
 ## ทำไม iOS ใช้ Apple Vision
 
@@ -246,6 +261,19 @@ android/src/main/assets/
 ```
 
 runtime จะ copy สอง profile ไปไว้คนละ private Tesseract data directory เพื่อไม่ให้ model fast/best ปนกัน
+
+### Dev ไม่ต้องติดตั้ง model เอง
+
+เมื่อ app เพิ่ม dependency ของ `thai_native_ocr` แล้ว ไม่ต้องทำสิ่งเหล่านี้:
+
+```text
+❌ download tha.traineddata / eng.traineddata
+❌ สร้าง tessdata folder ใน host project
+❌ เพิ่ม traineddata เข้า pubspec assets ของ app
+❌ เขียน code copy model ตอน startup
+```
+
+plugin bundle model มาให้และจัดการ copy ภายในเองเมื่อใช้งานครั้งแรก ดังนั้นฝั่ง host app ใช้ Dart API ได้เลย
 
 ## Example
 
