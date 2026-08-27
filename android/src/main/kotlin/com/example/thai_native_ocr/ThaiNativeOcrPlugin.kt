@@ -209,7 +209,7 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             api.clear()
             return OcrPass(text = text, confidence = confidence)
         } finally {
-            api.end()
+            api.recycle()
         }
     }
 
