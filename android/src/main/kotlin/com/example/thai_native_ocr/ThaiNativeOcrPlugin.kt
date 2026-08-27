@@ -71,7 +71,8 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
      * 2. Accurate pass using tha+eng when Thai was detected, otherwise eng.
      *
      * forceLanguage bypasses Stage 1. autoDetectThai=false also bypasses Stage 1
-     * and directly runs the bilingual tha+eng pass.
+     * and directly runs the bilingual tha+eng pass. `th` is retained as a
+     * backward-compatible alias for the bilingual tha+eng strategy.
      */
     private fun recognize(
         bitmap: Bitmap,
@@ -81,9 +82,8 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         var stage1ContainsThai = false
 
         val stage2Language = when {
-            forceLanguage == "th" -> "tha"
             forceLanguage == "en" -> "eng"
-            forceLanguage == "mixed" -> "tha+eng"
+            forceLanguage == "th" || forceLanguage == "mixed" -> "tha+eng"
             !autoDetectThai -> "tha+eng"
             else -> {
                 // Stage 1: quick OCR with eng. PSM_AUTO is used instead of
@@ -99,7 +99,7 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
         }
 
-        // Stage 2: accurate OCR. tessdata_best models are bundled by Android.
+        // Stage 2 has only two execution modes: bilingual Thai+English or English.
         val stage2 = runTesseract(
             bitmap = bitmap,
             language = stage2Language,
