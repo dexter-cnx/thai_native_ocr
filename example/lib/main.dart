@@ -7,6 +7,9 @@ void main() {
 }
 
 /// Minimal gallery-based example for `thai_native_ocr`.
+///
+/// Pick a local image, run the native OCR plugin, and inspect the detected
+/// language, Thai signal, confidence, and recognized text.
 class ThaiNativeOcrExampleApp extends StatelessWidget {
   /// Creates the example application.
   const ThaiNativeOcrExampleApp({super.key});
