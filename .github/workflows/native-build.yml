@@ -1,0 +1,55 @@
+name: Native build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'lib/**'
+      - 'android/**'
+      - 'ios/**'
+      - 'pubspec.yaml'
+      - 'example/android/**'
+      - 'example/ios/**'
+      - 'example/lib/**'
+      - 'example/pubspec.yaml'
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'android/**'
+      - 'ios/**'
+      - 'pubspec.yaml'
+      - 'example/android/**'
+      - 'example/ios/**'
+      - 'example/lib/**'
+      - 'example/pubspec.yaml'
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        working-directory: example
+        run: flutter pub get
+      - name: Build Android debug APK
+        working-directory: example
+        run: flutter build apk --debug
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        working-directory: example
+        run: flutter pub get
+      - name: Build iOS simulator app
+        working-directory: example
+        run: flutter build ios --simulator --no-codesign
