@@ -3,7 +3,8 @@
 Hybrid native Thai OCR for Flutter.
 
 - **iOS:** Apple Vision only — no Tesseract and no `tessdata` bundle.
-- **Android:** Tesseract 5 via Tesseract4Android, with bundled Thai + English `tessdata_fast` models.
+- **Android:** Tesseract 5 via Tesseract4Android.
+- **Two-stage Android model strategy:** Stage 1 uses `tessdata_fast`; Stage 2 accurate OCR uses `tessdata_best`.
 - **Two-stage detection:** fast Thai detection first, then one of two accurate modes: **Thai + English** or **English only**.
 - Supports image paths, `File`, and in-memory `Uint8List` bytes.
 - Optional OCR-oriented preprocessing for difficult document images.
@@ -23,7 +24,7 @@ Flutter assets are normally packaged under `App.framework/flutter_assets`, while
 When `autoDetectThai` is enabled and `forceLanguage` is not set:
 
 - **iOS:** Vision `.fast` recognition with automatic language detection when supported by the OS.
-- **Android:** the image is downscaled to at most 960 px on its longest side, then a lightweight `tha+eng` Tesseract pass runs with `PSM_SPARSE_TEXT`.
+- **Android:** the image is downscaled to at most 960 px on its longest side, then a lightweight `tha+eng` Tesseract pass runs with `PSM_SPARSE_TEXT` using **`tessdata_fast`**.
 - The detector checks the OCR output for Thai Unicode characters (`U+0E00..U+0E7F`).
 
 Android deliberately uses a bilingual detector instead of an English-only detector so Thai-only documents do not fall through to English mode simply because the English model emitted no Thai characters.
@@ -34,10 +35,12 @@ There are only two execution modes:
 
 | Detection | iOS | Android |
 | --- | --- | --- |
-| Thai detected | `th-TH` + `en-US`, `.accurate` | `tha+eng`, `PSM_AUTO` |
-| No Thai detected | `en-US`, `.accurate` | `eng`, `PSM_AUTO` |
+| Thai detected | `th-TH` + `en-US`, `.accurate` | `tha+eng`, `PSM_AUTO`, **`tessdata_best`** |
+| No Thai detected | `en-US`, `.accurate` | `eng`, `PSM_AUTO`, **`tessdata_best`** |
 
 There is intentionally no Thai-only mode. `forceLanguage: 'th'` is retained only as a backward-compatible alias for the bilingual Thai + English mode.
+
+This split keeps the detector responsive while letting the final OCR pass prioritize Thai recognition quality, including combining marks and diacritics.
 
 ## Usage
 
@@ -103,17 +106,23 @@ print(result.detectedLanguage); // th, en, mixed
 print(result.confidence);       // 0.0 - 1.0
 ```
 
-## Android model choice
+## Android model layout
 
-The package bundles `tha.traineddata` and `eng.traineddata` from `tessdata_fast` as the default balance between package size and runtime speed. The Android binding uses Tesseract 5, which is compatible with current v4+ traineddata files.
-
-The traineddata assets are Android-native assets only:
+The Android plugin bundles four traineddata files, split by responsibility:
 
 ```text
-android/src/main/assets/tessdata/
+android/src/main/assets/
+├── tessdata_fast/
+│   ├── tha.traineddata
+│   └── eng.traineddata
+└── tessdata_best/
+    ├── tha.traineddata
+    └── eng.traineddata
 ```
 
-They are not bundled into the iOS plugin.
+At runtime the plugin copies each profile into a separate private Tesseract data directory. Stage 1 always initializes the fast profile; Stage 2 always initializes the best profile.
+
+The model assets are Android-native assets only and are never bundled into the iOS plugin.
 
 ## Example
 
@@ -155,7 +164,8 @@ For implementation details, see [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md).
 `thai_native_ocr` คือ Flutter plugin สำหรับ OCR ภาษาไทย/อังกฤษ โดยเลือก native engine ที่เหมาะกับแต่ละ platform
 
 - **iOS:** ใช้ Apple Vision เท่านั้น ไม่มี Tesseract และไม่มี `tessdata`
-- **Android:** ใช้ Tesseract 5 ผ่าน Tesseract4Android พร้อม `tha` + `eng` จาก `tessdata_fast`
+- **Android:** ใช้ Tesseract 5 ผ่าน Tesseract4Android
+- **Stage 1 Android ใช้ `tessdata_fast`**, ส่วน **Stage 2 OCR จริงใช้ `tessdata_best`**
 - **ตรวจภาษาไทย 2 Stage:** ตรวจแบบเร็วก่อน แล้วเลือก OCR แบบแม่นยำเพียง 2 แบบ คือ **ไทย+อังกฤษ** หรือ **อังกฤษล้วน**
 - รองรับ path, `File` และ `Uint8List`
 - เปิด preprocessing ได้สำหรับภาพเอกสารที่มืดหรือ contrast ไม่สม่ำเสมอ
@@ -171,19 +181,21 @@ package นี้ตัดปัญหานั้นออกจาก iOS โ�
 เมื่อใช้ `autoDetectThai: true`:
 
 - **iOS:** Vision `.fast` + automatic language detection เมื่อ OS รองรับ
-- **Android:** ย่อภาพให้ด้านยาวไม่เกิน 960 px แล้วใช้ `tha+eng` กับ `PSM_SPARSE_TEXT`
+- **Android:** ย่อภาพให้ด้านยาวไม่เกิน 960 px แล้วใช้ `tha+eng` กับ `PSM_SPARSE_TEXT` และ **`tessdata_fast`**
 - ตรวจผลด้วยช่วง Unicode ภาษาไทย `U+0E00..U+0E7F`
 
 Android ไม่ใช้ `eng` ล้วนเป็น detector แล้ว เพราะเอกสารไทยล้วนมีโอกาสที่ English model จะไม่สร้างอักษรไทยออกมาเลยและทำให้เลือก mode ผิด
 
 ## Stage 2 — OCR แบบแม่นยำ
 
-มีแค่ 2 mode:
+Stage 2 ฝั่ง Android ใช้ **`tessdata_best`** เสมอ:
 
-- พบไทย → iOS `th-TH + en-US`; Android `tha+eng`
-- ไม่พบไทย → iOS `en-US`; Android `eng`
+- พบไทย → iOS `th-TH + en-US`; Android `tha+eng + tessdata_best`
+- ไม่พบไทย → iOS `en-US`; Android `eng + tessdata_best`
 
 ไม่มีโหมดไทยล้วน โดย `forceLanguage: 'th'` ยังคงรับไว้เพื่อ compatibility แต่ทำงานเหมือน `mixed` คือไทย+อังกฤษ
+
+แนวทางนี้ทำให้ detector ยังเร็วจาก `tessdata_fast` แต่ OCR รอบสุดท้ายเน้นความแม่นยำ โดยเฉพาะสระและวรรณยุกต์ภาษาไทย
 
 ## วิธีใช้
 
@@ -221,13 +233,19 @@ final result = await ThaiNativeOcr.recognize(
 
 ## Android model
 
-ค่า default ใช้ `tessdata_fast` เพื่อให้ package เล็กและประมวลผลเร็วกว่า `tessdata_best` โดยยังคงรองรับ traineddata รุ่นปัจจุบันผ่าน Tesseract 5
-
-model อยู่เฉพาะ Android ที่:
+model แยกเป็น 2 ชุด:
 
 ```text
-android/src/main/assets/tessdata/
+android/src/main/assets/
+├── tessdata_fast/   # Stage 1 detector
+│   ├── tha.traineddata
+│   └── eng.traineddata
+└── tessdata_best/   # Stage 2 accurate OCR
+    ├── tha.traineddata
+    └── eng.traineddata
 ```
+
+runtime จะ copy สอง profile ไปไว้คนละ private Tesseract data directory เพื่อไม่ให้ model fast/best ปนกัน
 
 ## Example
 
