@@ -12,8 +12,9 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
+import kotlin.math.max
 
-/** Android implementation: Tesseract only. iOS intentionally uses Apple Vision instead. */
+/** Android implementation backed by Tesseract 5. */
 class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var channel: MethodChannel
     private lateinit var context: Context
@@ -33,13 +34,15 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
 
         val imagePath = call.argument<String>("imagePath")
-        if (imagePath.isNullOrBlank()) {
-            result.error("INVALID_ARGUMENT", "imagePath is required.", null)
+        val imageBytes = call.argument<ByteArray>("imageBytes")
+        if (imagePath.isNullOrBlank() && (imageBytes == null || imageBytes.isEmpty())) {
+            result.error("INVALID_ARGUMENT", "imagePath or imageBytes is required.", null)
             return
         }
 
         val autoDetectThai = call.argument<Boolean>("autoDetectThai") ?: true
         val forceLanguage = call.argument<String>("forceLanguage")
+        val preprocess = call.argument<Boolean>("preprocess") ?: false
         if (forceLanguage != null && forceLanguage !in setOf("th", "en", "mixed")) {
             result.error("INVALID_FORCE_LANGUAGE", "forceLanguage must be th, en, or mixed.", null)
             return
@@ -48,11 +51,10 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         executor.execute {
             try {
                 ensureTessdata()
-                val bitmap = BitmapFactory.decodeFile(normalizeImagePath(imagePath))
-                    ?: throw IllegalArgumentException("Unable to decode imagePath: $imagePath")
+                val bitmap = decodeBitmap(imagePath, imageBytes)
 
                 try {
-                    val output = recognize(bitmap, autoDetectThai, forceLanguage)
+                    val output = recognize(bitmap, autoDetectThai, forceLanguage, preprocess)
                     mainHandler.post { result.success(output) }
                 } finally {
                     bitmap.recycle()
@@ -65,19 +67,11 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    /**
-     * Two-stage OCR:
-     * 1. Lightweight English pass used only as the Thai detector signal.
-     * 2. Accurate pass using tha+eng when Thai was detected, otherwise eng.
-     *
-     * forceLanguage bypasses Stage 1. autoDetectThai=false also bypasses Stage 1
-     * and directly runs the bilingual tha+eng pass. `th` is retained as a
-     * backward-compatible alias for the bilingual tha+eng strategy.
-     */
     private fun recognize(
         bitmap: Bitmap,
         autoDetectThai: Boolean,
         forceLanguage: String?,
+        preprocess: Boolean,
     ): Map<String, Any> {
         var stage1ContainsThai = false
 
@@ -86,25 +80,31 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             forceLanguage == "th" || forceLanguage == "mixed" -> "tha+eng"
             !autoDetectThai -> "tha+eng"
             else -> {
-                // Stage 1: quick OCR with eng. PSM_AUTO is used instead of
-                // PSM_AUTO_OSD because AUTO_OSD requires osd.traineddata,
-                // which this package intentionally does not ship.
-                val stage1 = runTesseract(
-                    bitmap = bitmap,
-                    language = "eng",
-                    pageSegMode = TessBaseAPI.PageSegMode.PSM_AUTO,
-                )
-                stage1ContainsThai = THAI_REGEX.containsMatchIn(stage1.text)
+                val detectorBitmap = downscaleForDetector(bitmap)
+                try {
+                    val stage1 = runTesseract(
+                        bitmap = detectorBitmap,
+                        language = "tha+eng",
+                        pageSegMode = TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT,
+                    )
+                    stage1ContainsThai = THAI_REGEX.containsMatchIn(stage1.text)
+                } finally {
+                    if (detectorBitmap !== bitmap) detectorBitmap.recycle()
+                }
                 if (stage1ContainsThai) "tha+eng" else "eng"
             }
         }
 
-        // Stage 2 has only two execution modes: bilingual Thai+English or English.
-        val stage2 = runTesseract(
-            bitmap = bitmap,
-            language = stage2Language,
-            pageSegMode = TessBaseAPI.PageSegMode.PSM_AUTO,
-        )
+        val stage2Bitmap = if (preprocess) adaptiveThreshold(bitmap) else bitmap
+        val stage2 = try {
+            runTesseract(
+                bitmap = stage2Bitmap,
+                language = stage2Language,
+                pageSegMode = TessBaseAPI.PageSegMode.PSM_AUTO,
+            )
+        } finally {
+            if (stage2Bitmap !== bitmap) stage2Bitmap.recycle()
+        }
 
         val finalContainsThai = stage1ContainsThai || THAI_REGEX.containsMatchIn(stage2.text)
         val detectedLanguage = detectLanguage(stage2.text, finalContainsThai)
@@ -115,6 +115,79 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "detectedLanguage" to detectedLanguage,
             "confidence" to stage2.confidence,
         )
+    }
+
+    private fun decodeBitmap(imagePath: String?, imageBytes: ByteArray?): Bitmap {
+        if (imageBytes != null && imageBytes.isNotEmpty()) {
+            return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                ?: throw IllegalArgumentException("Unable to decode imageBytes.")
+        }
+
+        val path = imagePath ?: throw IllegalArgumentException("imagePath is required.")
+        return BitmapFactory.decodeFile(normalizeImagePath(path))
+            ?: throw IllegalArgumentException("Unable to decode imagePath: $path")
+    }
+
+    private fun downscaleForDetector(bitmap: Bitmap): Bitmap {
+        val largest = max(bitmap.width, bitmap.height)
+        if (largest <= DETECTOR_MAX_DIMENSION) return bitmap
+
+        val scale = DETECTOR_MAX_DIMENSION.toDouble() / largest.toDouble()
+        return Bitmap.createScaledBitmap(
+            bitmap,
+            (bitmap.width * scale).toInt().coerceAtLeast(1),
+            (bitmap.height * scale).toInt().coerceAtLeast(1),
+            true,
+        )
+    }
+
+    private fun adaptiveThreshold(bitmap: Bitmap): Bitmap {
+        val width = bitmap.width
+        val height = bitmap.height
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        val gray = IntArray(pixels.size)
+        for (i in pixels.indices) {
+            val color = pixels[i]
+            val r = color shr 16 and 0xFF
+            val g = color shr 8 and 0xFF
+            val b = color and 0xFF
+            gray[i] = (r * 299 + g * 587 + b * 114) / 1000
+        }
+
+        val integral = LongArray((width + 1) * (height + 1))
+        for (y in 1..height) {
+            var rowSum = 0L
+            for (x in 1..width) {
+                rowSum += gray[(y - 1) * width + (x - 1)]
+                integral[y * (width + 1) + x] =
+                    integral[(y - 1) * (width + 1) + x] + rowSum
+            }
+        }
+
+        val output = IntArray(pixels.size)
+        val radius = ADAPTIVE_BLOCK_SIZE / 2
+        for (y in 0 until height) {
+            val y0 = (y - radius).coerceAtLeast(0)
+            val y1 = (y + radius).coerceAtMost(height - 1)
+            for (x in 0 until width) {
+                val x0 = (x - radius).coerceAtLeast(0)
+                val x1 = (x + radius).coerceAtMost(width - 1)
+                val area = (x1 - x0 + 1) * (y1 - y0 + 1)
+                val stride = width + 1
+                val sum = integral[(y1 + 1) * stride + (x1 + 1)] -
+                    integral[y0 * stride + (x1 + 1)] -
+                    integral[(y1 + 1) * stride + x0] +
+                    integral[y0 * stride + x0]
+                val threshold = (sum / area - ADAPTIVE_C).coerceIn(0L, 255L).toInt()
+                val value = if (gray[y * width + x] > threshold) 255 else 0
+                output[y * width + x] = 0xFF000000.toInt() or
+                    (value shl 16) or (value shl 8) or value
+            }
+        }
+
+        return Bitmap.createBitmap(output, width, height, Bitmap.Config.ARGB_8888)
     }
 
     private fun runTesseract(
@@ -132,7 +205,7 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             api.pageSegMode = pageSegMode
             api.setImage(bitmap)
             val text = api.utF8Text.orEmpty()
-            val confidence = (api.meanConfidence().coerceIn(0, 100) / 100.0)
+            val confidence = api.meanConfidence().coerceIn(0, 100) / 100.0
             api.clear()
             return OcrPass(text = text, confidence = confidence)
         } finally {
@@ -140,7 +213,7 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    /** Copies bundled tessdata_best files once into filesDir/tessdata/. */
+    /** Copies bundled tessdata_fast files once into filesDir/tessdata/. */
     private fun ensureTessdata() {
         val tessdataDir = File(context.filesDir, "tessdata")
         if (!tessdataDir.exists() && !tessdataDir.mkdirs()) {
@@ -149,10 +222,11 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
         for (name in TRAINED_DATA_FILES) {
             val target = File(tessdataDir, name)
-            if (target.exists() && target.length() > 0L) continue
+            val assetLength = context.assets.openFd("tessdata/$name").length
+            if (target.exists() && target.length() == assetLength) continue
 
             context.assets.open("tessdata/$name").use { input ->
-                FileOutputStream(target).use { output ->
+                FileOutputStream(target, false).use { output ->
                     input.copyTo(output)
                 }
             }
@@ -179,6 +253,9 @@ class ThaiNativeOcrPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private data class OcrPass(val text: String, val confidence: Double)
 
     private companion object {
+        const val DETECTOR_MAX_DIMENSION = 960
+        const val ADAPTIVE_BLOCK_SIZE = 31
+        const val ADAPTIVE_C = 10
         val THAI_REGEX = Regex("[\\u0E00-\\u0E7F]")
         val LATIN_REGEX = Regex("[A-Za-z]")
         val TRAINED_DATA_FILES = listOf("tha.traineddata", "eng.traineddata")
