@@ -19,14 +19,14 @@ void main() {
     MethodCall? captured;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      captured = call;
-      return <String, Object?>{
-        'text': 'สวัสดี Hello',
-        'containsThai': true,
-        'detectedLanguage': 'mixed',
-        'confidence': 0.91,
-      };
-    });
+          captured = call;
+          return <String, Object?>{
+            'text': 'สวัสดี Hello',
+            'containsThai': true,
+            'detectedLanguage': 'mixed',
+            'confidence': 0.91,
+          };
+        });
 
     final result = await ThaiNativeOcr.recognize(
       '/tmp/image.jpg',
@@ -49,19 +49,19 @@ void main() {
   test('recognizeFile forwards file path', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      expect(call.arguments, <String, Object?>{
-        'imagePath': '/tmp/file.jpg',
-        'autoDetectThai': true,
-        'forceLanguage': null,
-        'preprocess': false,
-      });
-      return <String, Object?>{
-        'text': 'Hello',
-        'containsThai': false,
-        'detectedLanguage': 'en',
-        'confidence': 0.8,
-      };
-    });
+          expect(call.arguments, <String, Object?>{
+            'imagePath': '/tmp/file.jpg',
+            'autoDetectThai': true,
+            'forceLanguage': null,
+            'preprocess': false,
+          });
+          return <String, Object?>{
+            'text': 'Hello',
+            'containsThai': false,
+            'detectedLanguage': 'en',
+            'confidence': 0.8,
+          };
+        });
 
     final result = await ThaiNativeOcr.recognizeFile(File('/tmp/file.jpg'));
     expect(result.detectedLanguage, 'en');
@@ -72,17 +72,17 @@ void main() {
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      final arguments = call.arguments as Map<Object?, Object?>;
-      expect(arguments['imagePath'], isNull);
-      expect(arguments['imageBytes'], bytes);
-      expect(arguments['preprocess'], isFalse);
-      return <String, Object?>{
-        'text': 'ภาษาไทย',
-        'containsThai': true,
-        'detectedLanguage': 'th',
-        'confidence': 0.9,
-      };
-    });
+          final arguments = call.arguments as Map<Object?, Object?>;
+          expect(arguments['imagePath'], isNull);
+          expect(arguments['imageBytes'], bytes);
+          expect(arguments['preprocess'], isFalse);
+          return <String, Object?>{
+            'text': 'ภาษาไทย',
+            'containsThai': true,
+            'detectedLanguage': 'th',
+            'confidence': 0.9,
+          };
+        });
 
     final result = await ThaiNativeOcr.recognizeBytes(bytes);
     expect(result.containsThai, isTrue);
@@ -91,19 +91,19 @@ void main() {
   test('forceLanguage is forwarded and validation is strict', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
-      expect(call.arguments, <String, Object?>{
-        'imagePath': '/tmp/image.jpg',
-        'autoDetectThai': true,
-        'forceLanguage': 'th',
-        'preprocess': false,
-      });
-      return <String, Object?>{
-        'text': 'ภาษาไทย',
-        'containsThai': true,
-        'detectedLanguage': 'th',
-        'confidence': 1.0,
-      };
-    });
+          expect(call.arguments, <String, Object?>{
+            'imagePath': '/tmp/image.jpg',
+            'autoDetectThai': true,
+            'forceLanguage': 'th',
+            'preprocess': false,
+          });
+          return <String, Object?>{
+            'text': 'ภาษาไทย',
+            'containsThai': true,
+            'detectedLanguage': 'th',
+            'confidence': 1.0,
+          };
+        });
 
     final result = await ThaiNativeOcr.recognize(
       '/tmp/image.jpg',
