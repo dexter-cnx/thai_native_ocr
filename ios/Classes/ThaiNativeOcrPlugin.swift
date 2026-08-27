@@ -203,11 +203,9 @@ public class ThaiNativeOcrPlugin: NSObject, FlutterPlugin {
   }
 
   private func containsThai(_ text: String) -> Bool {
-    guard let regex = try? NSRegularExpression(pattern: "[\\u0E00-\\u0E7F]") else {
-      return false
+    return text.unicodeScalars.contains { scalar in
+      scalar.value >= 0x0E00 && scalar.value <= 0x0E7F
     }
-    let range = NSRange(text.startIndex..<text.endIndex, in: text)
-    return regex.firstMatch(in: text, options: [], range: range) != nil
   }
 
   private func detectLanguage(in text: String, containsThai: Bool) -> String {
