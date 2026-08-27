@@ -18,3 +18,5 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test example/lib
       - run: flutter analyze
       - run: flutter test
+      - name: Validate pub.dev package
+        run: dart pub publish --dry-run
