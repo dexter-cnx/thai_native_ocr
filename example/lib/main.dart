@@ -111,9 +111,15 @@ class _OcrPageState extends State<OcrPage> {
             Align(
               alignment: Alignment.centerLeft,
               child: Chip(
+                backgroundColor:
+                    result.containsThai ? Colors.green.shade50 : null,
+                side: result.containsThai
+                    ? BorderSide(color: Colors.green.shade300)
+                    : null,
                 avatar: Icon(
                   result.containsThai ? Icons.check_circle : Icons.language,
                   size: 18,
+                  color: result.containsThai ? Colors.green.shade700 : null,
                 ),
                 label: Text(
                   result.containsThai ? 'Thai detected' : 'English only',
